@@ -35,7 +35,22 @@ def mrf_energy(
     Returns:
         Scalar energy.
     """
-    raise NotImplementedError("mrf_energy is not implemented")
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+
+    data = np.sum((x - y) ** 2)
+
+    diffs_h = x[:, :-1] - x[:, 1:]
+    diffs_v = x[:-1, :] - x[1:, :]
+
+    def rho(d: np.ndarray) -> np.ndarray:
+        if penalty == "quadratic":
+            return d ** 2
+        abs_d = np.abs(d)
+        return np.where(abs_d <= huber_delta, 0.5 * d ** 2, huber_delta * (abs_d - 0.5 * huber_delta))
+
+    smooth = lambda_smooth * (float(np.sum(rho(diffs_h))) + float(np.sum(rho(diffs_v))))
+    return float(data + smooth)
 
 
 def mrf_denoise(
@@ -60,12 +75,40 @@ def mrf_denoise(
     Returns:
         Restored image with the same shape as `y`.
     """
-    raise NotImplementedError("mrf_denoise is not implemented")
+    y = np.asarray(y, dtype=np.float64)
+    x = y.copy()
+
+    def rho_prime(d: np.ndarray) -> np.ndarray:
+        if penalty == "quadratic":
+            return 2.0 * d
+        return np.where(np.abs(d) <= huber_delta, d, huber_delta * np.sign(d))
+
+    for _ in range(num_iters):
+        grad = 2.0 * (x - y)
+
+        dh = x[:, :-1] - x[:, 1:]
+        rh = rho_prime(dh)
+        grad[:, :-1] += lambda_smooth * rh
+        grad[:, 1:] -= lambda_smooth * rh
+
+        dv = x[:-1, :] - x[1:, :]
+        rv = rho_prime(dv)
+        grad[:-1, :] += lambda_smooth * rv
+        grad[1:, :] -= lambda_smooth * rv
+
+        x -= step * grad
+        x = np.clip(x, 0.0, 255.0)
+
+    return x.astype(np.float32)
 
 
 def normalize_to_uint8(x: np.ndarray) -> np.ndarray:
     """Min-max normalize array to [0,255] uint8 for visualization."""
-    raise NotImplementedError("normalize_to_uint8 is not implemented")
+    arr = np.asarray(x, dtype=np.float32)
+    mn, mx = float(np.min(arr)), float(np.max(arr))
+    if mx <= mn:
+        return np.zeros_like(arr, dtype=np.uint8)
+    return np.clip((arr - mn) * (255.0 / (mx - mn)), 0.0, 255.0).astype(np.uint8)
 
 
 def main() -> int:
